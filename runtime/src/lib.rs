@@ -6,6 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use frame_support::PalletId;
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
@@ -140,8 +141,6 @@ parameter_types! {
 	pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength
 		::max_with_normal_ratio(10 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
 	pub const SS58Prefix: u8 = 42;
-	pub const MaxPublicParameterLen: u32 = 196896;
-	pub const MaxVerifierDataLen: u32 = 972;
 }
 
 // Configure FRAME pallets to include in runtime.
@@ -265,11 +264,18 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
+parameter_types! {
+	pub const MaxPublicParameterLen: u32 = 196896;
+	pub const MaxVerifierDataLen: u32 = 972;
+	pub const MixerPalletId: PalletId = PalletId(*b"my/mixer");
+}
 /// Configure the pallet-template in pallets/template.
 impl pallet_template::Config for Runtime {
+	type Currency = Balances;
 	type Event = Event;
 	type MaxPublicParameterLen = MaxPublicParameterLen;
 	type MaxVerifierDataLen = MaxVerifierDataLen;
+	type PalletId = MixerPalletId;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

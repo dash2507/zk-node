@@ -15,19 +15,34 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+use frame_support::{
+	debug,
+	dispatch::Vec,
+	pallet_prelude::*,
+	sp_runtime::{self, traits::AccountIdConversion},
+	traits::{Currency, ExistenceRequirement, Get},
+	PalletId,
+};
+use frame_system::pallet_prelude::*;
+
+pub type BalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 #[frame_support::pallet]
 pub mod pallet {
+	use super::*;
 	use dusk_bytes::Serializable;
 	use dusk_plonk::{circuit::verify, prelude::*};
-	use frame_support::{debug, dispatch::Vec, pallet_prelude::*};
-	use frame_system::pallet_prelude::*;
-	use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+		type Currency: Currency<Self::AccountId>;
+
+		#[pallet::constant]
+		type PalletId: Get<PalletId>;
 
 		#[pallet::constant]
 		type MaxPublicParameterLen: Get<u32>;
@@ -56,6 +71,42 @@ pub mod pallet {
 	pub type VerifierDataStorage<T: Config> =
 		StorageValue<_, BoundedVec<u8, T::MaxVerifierDataLen>>;
 
+	#[pallet::genesis_config]
+	pub struct GenesisConfig;
+
+	#[cfg(feature = "std")]
+	impl Default for GenesisConfig {
+		fn default() -> Self {
+			Self
+		}
+	}
+
+	#[cfg(feature = "std")]
+	impl GenesisConfig {
+		/// Direct implementation of `GenesisBuild::assimilate_storage`.
+		#[deprecated(
+			note = "use `<GensisConfig<T> as GenesisBuild<T>>::assimilate_storage` instead"
+		)]
+		pub fn assimilate_storage<T: Config>(
+			&self,
+			storage: &mut sp_runtime::Storage,
+		) -> Result<(), String> {
+			<Self as GenesisBuild<T>>::assimilate_storage(self, storage)
+		}
+	}
+
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig {
+		fn build(&self) {
+			// Create Treasury account
+			let account_id = <Pallet<T>>::account_id();
+			let min = T::Currency::minimum_balance();
+			if T::Currency::free_balance(&account_id) < min {
+				let _ = T::Currency::make_free_balance_be(&account_id, min);
+			}
+			debug(&T::Currency::total_balance(&account_id));
+		}
+	}
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/v3/runtime/events-and-errors
 	#[pallet::event]
@@ -101,11 +152,30 @@ pub mod pallet {
 					Self::deposit_event(Event::PaublicParameteresStored(bounded_vec_size, who));
 					Ok(())
 				},
-				Err(e) => {
+				Err(_e) => {
 					//debug(&format!("Failed to convert vec to boundedvec: {:?}", &e));
 					Ok(())
 				},
 			}
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn deposit(
+			origin: OriginFor<T>,
+			value: BalanceOf<T>,
+			//commitment: T::Hash,
+		) -> DispatchResult {
+			// Check that the extrinsic was signed and get the signer.
+			// This function will return an error if the extrinsic is not signed.
+			// https://docs.substrate.io/v3/runtime/origins
+			let who = ensure_signed(origin)?;
+			let account_id = Self::account_id();
+			let _ =
+				T::Currency::transfer(&who, &account_id, value, ExistenceRequirement::AllowDeath);
+			//let sender_balance = Self::get_balance(&who);
+			debug(&T::Currency::total_balance(&account_id));
+			Ok(())
+			//debug(&pp.to_var_bytes().len());
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
@@ -147,5 +217,11 @@ pub mod pallet {
 				(_, _) => Ok(()),
 			}
 		}
+	}
+}
+
+impl<T: Config> Pallet<T> {
+	pub fn account_id() -> T::AccountId {
+		T::PalletId::get().into_account()
 	}
 }
