@@ -19,7 +19,7 @@ use frame_support::{
 	debug,
 	dispatch::Vec,
 	pallet_prelude::*,
-	sp_runtime::{self, traits::AccountIdConversion},
+	sp_runtime::traits::AccountIdConversion,
 	traits::{Currency, ExistenceRequirement, Get},
 	PalletId,
 };
@@ -45,6 +45,9 @@ pub mod pallet {
 		type PalletId: Get<PalletId>;
 
 		#[pallet::constant]
+		type Capacity: Get<u32>;
+
+		#[pallet::constant]
 		type MaxPublicParameterLen: Get<u32>;
 
 		#[pallet::constant]
@@ -55,19 +58,17 @@ pub mod pallet {
 	#[pallet::generate_store(pub(super) trait Store)]
 	pub struct Pallet<T>(_);
 
-	// The pallet's runtime storage items.
-	// https://docs.substrate.io/v3/runtime/storage
+	#[pallet::storage]
+	#[pallet::getter(fn commitments)]
+	pub type CommitmentStorage<T: Config> = StorageMap<_, Twox64Concat, [u8; 32], (), ValueQuery>;
+
 	#[pallet::storage]
 	#[pallet::getter(fn srs)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
 	pub type PublicParametersStorage<T: Config> =
 		StorageValue<_, BoundedVec<u8, T::MaxPublicParameterLen>>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn verifier_data)]
-	// Learn more about declaring storage items:
-	// https://docs.substrate.io/v3/runtime/storage#declaring-storage-items
 	pub type VerifierDataStorage<T: Config> =
 		StorageValue<_, BoundedVec<u8, T::MaxVerifierDataLen>>;
 
@@ -81,20 +82,6 @@ pub mod pallet {
 		}
 	}
 
-	#[cfg(feature = "std")]
-	impl GenesisConfig {
-		/// Direct implementation of `GenesisBuild::assimilate_storage`.
-		#[deprecated(
-			note = "use `<GensisConfig<T> as GenesisBuild<T>>::assimilate_storage` instead"
-		)]
-		pub fn assimilate_storage<T: Config>(
-			&self,
-			storage: &mut sp_runtime::Storage,
-		) -> Result<(), String> {
-			<Self as GenesisBuild<T>>::assimilate_storage(self, storage)
-		}
-	}
-
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig {
 		fn build(&self) {
@@ -105,6 +92,7 @@ pub mod pallet {
 				let _ = T::Currency::make_free_balance_be(&account_id, min);
 			}
 			debug(&T::Currency::total_balance(&account_id));
+			//<CommitmentStorage<T>>::put(BoundedBTreeSet::new());
 		}
 	}
 	// Pallets use events to inform users when important changes are made.
@@ -122,19 +110,29 @@ pub mod pallet {
 	#[pallet::error]
 	pub enum Error<T> {
 		ConvertionVecToBVecFail,
-		/// Error names should be descriptive.
 		NoneValue,
-		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
 	}
 
-	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	// These functions materialize as "extrinsics", which are often compared to transactions.
-	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// An example dispatchable that takes a singles value as a parameter, writes the value to
-		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn deposit(
+			origin: OriginFor<T>,
+			value: BalanceOf<T>,
+			commitment: [u8; 32],
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			assert_eq!(<CommitmentStorage<T>>::contains_key(&commitment), false);
+			<CommitmentStorage<T>>::insert(commitment, ());
+			let account_id = Self::account_id();
+
+			T::Currency::transfer(&who, &account_id, value, ExistenceRequirement::AllowDeath)?;
+			debug(&T::Currency::total_balance(&account_id));
+
+			Ok(())
+		}
+
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
 		pub fn store_parameters(origin: OriginFor<T>, parameters: Vec<u8>) -> DispatchResult {
 			// Check that the extrinsic was signed and get the signer.
@@ -158,26 +156,6 @@ pub mod pallet {
 				},
 			}
 		}
-
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn deposit(
-			origin: OriginFor<T>,
-			value: BalanceOf<T>,
-			//commitment: T::Hash,
-		) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://docs.substrate.io/v3/runtime/origins
-			let who = ensure_signed(origin)?;
-			let account_id = Self::account_id();
-			let _ =
-				T::Currency::transfer(&who, &account_id, value, ExistenceRequirement::AllowDeath);
-			//let sender_balance = Self::get_balance(&who);
-			debug(&T::Currency::total_balance(&account_id));
-			Ok(())
-			//debug(&pp.to_var_bytes().len());
-		}
-
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn store_vd(origin: OriginFor<T>, verifier_data: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
