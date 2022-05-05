@@ -20,6 +20,7 @@ use frame_support::{
 	dispatch::Vec,
 	pallet_prelude::*,
 	sp_runtime::traits::AccountIdConversion,
+	storage::bounded_btree_map::BoundedBTreeMap,
 	traits::{Currency, ExistenceRequirement, Get},
 	PalletId,
 };
@@ -27,6 +28,23 @@ use frame_system::pallet_prelude::*;
 
 pub type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
+//#[derive(Encode, Decode, Clone, PartialEq, Eq, MaxEncodedLen, RuntimeDebug, TypeInfo)]
+//pub struct MerkleTreeWithHistory<R: Get<u32>> {
+//	pub next_index: u32,
+//	pub current_root_index: u32,
+//	pub roots: BoundedBTreeMap<u32, [u8; 32], R>,
+//	pub filled_subtrees: BoundedBTreeMap<u32, [u8; 32], R>,
+//}
+//
+//impl<R: Get<u32>> Default for MerkleTreeWithHistory<R> {
+//	fn default() -> Self {
+//		let levels = R::get();
+//		let filled_subtrees = BoundedBTreeMap::new();
+//		let roots = BoundedBTreeMap::new();
+//		Self { filled_subtrees, next_index: 0, current_root_index: 0, roots }
+//	}
+//}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -45,7 +63,10 @@ pub mod pallet {
 		type PalletId: Get<PalletId>;
 
 		#[pallet::constant]
-		type Capacity: Get<u32>;
+		type MerkleTreeLevels: Get<u32>;
+
+		#[pallet::constant]
+		type RootHistorySize: Get<u32>;
 
 		#[pallet::constant]
 		type MaxPublicParameterLen: Get<u32>;
@@ -61,6 +82,23 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn commitments)]
 	pub type CommitmentStorage<T: Config> = StorageMap<_, Twox64Concat, [u8; 32], (), ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn next_index)]
+	pub type NextIndexStorage<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn current_root_index)]
+	pub type CurrentRootIndexStorage<T: Config> = StorageValue<_, u32, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn filled_subtrees)]
+	pub type FilledSubtreesStorage<T: Config> =
+		StorageMap<_, Twox64Concat, u32, [u8; 32], ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn roots)]
+	pub type RootsStorage<T: Config> = StorageMap<_, Twox64Concat, u32, [u8; 32], ValueQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn srs)]
@@ -102,6 +140,7 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
+		Deposit([u8; 32], u32),
 		PaublicParameteresStored(u32, T::AccountId),
 		VerifierDataStored(u32, T::AccountId),
 	}
@@ -124,12 +163,12 @@ pub mod pallet {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			assert_eq!(<CommitmentStorage<T>>::contains_key(&commitment), false);
-			<CommitmentStorage<T>>::insert(commitment, ());
+			<CommitmentStorage<T>>::insert(commitment.clone(), ());
 			let account_id = Self::account_id();
 
 			T::Currency::transfer(&who, &account_id, value, ExistenceRequirement::AllowDeath)?;
 			debug(&T::Currency::total_balance(&account_id));
-
+			Self::deposit_event(Event::Deposit(commitment, 0));
 			Ok(())
 		}
 

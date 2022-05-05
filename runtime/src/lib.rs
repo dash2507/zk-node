@@ -266,7 +266,8 @@ impl pallet_sudo::Config for Runtime {
 
 parameter_types! {
 	pub const MixerPalletId: PalletId = PalletId(*b"my/mixer");
-	pub const Capacity: u32 = 2u32.pow(4);
+	pub const MerkleTreeLevels: u32 = 2u32;
+	pub const RootHistorySize: u32 = 30u32;
 	pub const MaxPublicParameterLen: u32 = 196896;
 	pub const MaxVerifierDataLen: u32 = 972;
 }
@@ -275,7 +276,8 @@ impl pallet_template::Config for Runtime {
 	type Currency = Balances;
 	type Event = Event;
 	type PalletId = MixerPalletId;
-	type Capacity = Capacity;
+	type MerkleTreeLevels = MerkleTreeLevels;
+	type RootHistorySize = RootHistorySize;
 	type MaxPublicParameterLen = MaxPublicParameterLen;
 	type MaxVerifierDataLen = MaxVerifierDataLen;
 }
