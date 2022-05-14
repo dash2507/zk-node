@@ -19,38 +19,26 @@ use frame_support::{
 	debug,
 	dispatch::Vec,
 	pallet_prelude::*,
-	sp_runtime::traits::AccountIdConversion,
-	storage::bounded_btree_map::BoundedBTreeMap,
+	sp_runtime::traits::*,
 	traits::{Currency, ExistenceRequirement, Get},
 	PalletId,
 };
 use frame_system::pallet_prelude::*;
 
+use dusk_bls12_381::BlsScalar;
+use dusk_bytes::Serializable;
+use dusk_plonk::{
+	circuit::verify,
+	prelude::{PublicParameters, VerifierData},
+	proof_system::Proof,
+};
+
 pub type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-
-//#[derive(Encode, Decode, Clone, PartialEq, Eq, MaxEncodedLen, RuntimeDebug, TypeInfo)]
-//pub struct MerkleTreeWithHistory<R: Get<u32>> {
-//	pub next_index: u32,
-//	pub current_root_index: u32,
-//	pub roots: BoundedBTreeMap<u32, [u8; 32], R>,
-//	pub filled_subtrees: BoundedBTreeMap<u32, [u8; 32], R>,
-//}
-//
-//impl<R: Get<u32>> Default for MerkleTreeWithHistory<R> {
-//	fn default() -> Self {
-//		let levels = R::get();
-//		let filled_subtrees = BoundedBTreeMap::new();
-//		let roots = BoundedBTreeMap::new();
-//		Self { filled_subtrees, next_index: 0, current_root_index: 0, roots }
-//	}
-//}
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use dusk_bytes::Serializable;
-	use dusk_plonk::{circuit::verify, prelude::*};
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
 	#[pallet::config]
@@ -123,29 +111,36 @@ pub mod pallet {
 	#[pallet::genesis_build]
 	impl<T: Config> GenesisBuild<T> for GenesisConfig {
 		fn build(&self) {
-			// Create Treasury account
+			// Create Pallet account
 			let account_id = <Pallet<T>>::account_id();
 			let min = T::Currency::minimum_balance();
 			if T::Currency::free_balance(&account_id) < min {
 				let _ = T::Currency::make_free_balance_be(&account_id, min);
 			}
 			debug(&T::Currency::total_balance(&account_id));
-			//<CommitmentStorage<T>>::put(BoundedBTreeSet::new());
+			let mut tmp_hash = <Pallet<T>>::zeroes(0);
+			FilledSubtreesStorage::<T>::insert(0, &tmp_hash);
+
+			for i in 1..T::MerkleTreeLevels::get() {
+				tmp_hash = dusk_poseidon::sponge::hash(&[
+					BlsScalar::from_bytes(&tmp_hash).unwrap(),
+					BlsScalar::from_bytes(&tmp_hash).unwrap(),
+				])
+				.to_bytes();
+				FilledSubtreesStorage::<T>::insert(i, &tmp_hash);
+			}
+			RootsStorage::<T>::insert(0, &tmp_hash);
 		}
 	}
-	// Pallets use events to inform users when important changes are made.
-	// https://docs.substrate.io/v3/runtime/events-and-errors
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Event documentation should end with an array that provides descriptive names for event
-		/// parameters. [something, who]
 		Deposit([u8; 32], u32),
 		PaublicParameteresStored(u32, T::AccountId),
 		VerifierDataStored(u32, T::AccountId),
 	}
 
-	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
 		ConvertionVecToBVecFail,
@@ -162,23 +157,21 @@ pub mod pallet {
 			commitment: [u8; 32],
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			assert_eq!(<CommitmentStorage<T>>::contains_key(&commitment), false);
+			assert!(!<CommitmentStorage<T>>::contains_key(&commitment));
+			let index = Self::insert_into_tree(&commitment);
+
 			<CommitmentStorage<T>>::insert(commitment.clone(), ());
 			let account_id = Self::account_id();
 
 			T::Currency::transfer(&who, &account_id, value, ExistenceRequirement::AllowDeath)?;
 			debug(&T::Currency::total_balance(&account_id));
-			Self::deposit_event(Event::Deposit(commitment, 0));
+			Self::deposit_event(Event::Deposit(commitment, index));
 			Ok(())
 		}
 
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
 		pub fn store_parameters(origin: OriginFor<T>, parameters: Vec<u8>) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://docs.substrate.io/v3/runtime/origins
 			let who = ensure_signed(origin)?;
-			//debug(&pp.to_var_bytes().len());
 			debug(&parameters.len());
 			assert_eq!(T::MaxPublicParameterLen::get(), parameters.len() as u32);
 			match parameters.try_into() {
@@ -189,27 +182,20 @@ pub mod pallet {
 					Self::deposit_event(Event::PaublicParameteresStored(bounded_vec_size, who));
 					Ok(())
 				},
-				Err(_e) => {
-					//debug(&format!("Failed to convert vec to boundedvec: {:?}", &e));
-					Ok(())
-				},
+				Err(_e) => Ok(()),
 			}
 		}
+
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn store_vd(origin: OriginFor<T>, verifier_data: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			let vd_size = verifier_data.len() as u32;
 			let bvec: BoundedVec<u8, T::MaxVerifierDataLen> = verifier_data.try_into().unwrap();
-			// Update storage.
 			<VerifierDataStorage<T>>::put(bvec);
-
-			// Emit an event.
 			Self::deposit_event(Event::VerifierDataStored(vd_size, who));
-			// Return a successful DispatchResultWithPostInfo
 			Ok(())
 		}
 
-		/// An example dispatchable that may throw a custom error.
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
 		pub fn verify_proof(origin: OriginFor<T>, proof_bytes: Vec<u8>) -> DispatchResult {
 			let _who = ensure_signed(origin)?;
@@ -240,5 +226,45 @@ pub mod pallet {
 impl<T: Config> Pallet<T> {
 	pub fn account_id() -> T::AccountId {
 		T::PalletId::get().into_account()
+	}
+	pub fn insert_into_tree(leaf: &[u8; 32]) -> u32 {
+		let next_index = Self::next_index();
+		assert_ne!(next_index, 2u32.saturating_pow(<T as Config>::MerkleTreeLevels::get()));
+
+		let mut current_index = next_index;
+		let mut current_level_hash = leaf.clone();
+		let mut left: [u8; 32];
+		let mut right: [u8; 32];
+		for i in 0..<T as Config>::MerkleTreeLevels::get() {
+			if current_index % 2 == 0 {
+				FilledSubtreesStorage::<T>::insert(i, &current_level_hash);
+				left = current_level_hash;
+				right = Self::zeroes(i);
+			} else {
+				left = Self::filled_subtrees(i);
+				right = current_level_hash;
+			}
+			debug(&left);
+			debug(&right);
+			current_level_hash = dusk_poseidon::sponge::hash(&[
+				BlsScalar::from_bytes(&left).unwrap(),
+				BlsScalar::from_bytes(&right).unwrap(),
+			])
+			.to_bytes();
+			current_index /= 2;
+		}
+		let new_root_index =
+			(Self::current_root_index() + 1) % <T as Config>::RootHistorySize::get();
+		CurrentRootIndexStorage::<T>::put(new_root_index);
+		RootsStorage::<T>::insert(new_root_index, current_level_hash);
+		NextIndexStorage::<T>::put(next_index + 1);
+		next_index
+	}
+
+	pub fn zeroes(_idx: u32) -> [u8; 32] {
+		[
+			100, 72, 182, 70, 132, 238, 57, 168, 35, 213, 254, 95, 213, 36, 49, 220, 129, 228, 129,
+			123, 242, 195, 234, 60, 171, 158, 35, 158, 251, 245, 152, 32,
+		]
 	}
 }

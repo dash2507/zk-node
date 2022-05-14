@@ -1272,6 +1272,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dusk-hades"
+version = "0.18.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9dc2ecd051ef786d67ae61c99843f12f5c6c853e558b03b52bc7a349b73420b"
+dependencies = [
+ "dusk-bls12_381",
+ "dusk-plonk",
+]
+
+[[package]]
 name = "dusk-jubjub"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1297,6 +1307,19 @@ dependencies = [
  "itertools 0.9.0",
  "merlin 3.0.0",
  "rand_core 0.6.3",
+]
+
+[[package]]
+name = "dusk-poseidon"
+version = "0.25.0-rc.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efba1bbded2dd781162e6a2d7bd94ec801a0d285971c3b3c04088ceb3695dba3"
+dependencies = [
+ "dusk-bls12_381",
+ "dusk-bytes",
+ "dusk-hades",
+ "dusk-jubjub",
+ "dusk-plonk",
 ]
 
 [[package]]
@@ -3847,9 +3870,9 @@ dependencies = [
  "pallet-aura",
  "pallet-balances",
  "pallet-grandpa",
+ "pallet-mixer",
  "pallet-randomness-collective-flip",
  "pallet-sudo",
- "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -4129,6 +4152,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-mixer"
+version = "4.0.0-dev"
+dependencies = [
+ "dusk-bls12_381",
+ "dusk-bytes",
+ "dusk-plonk",
+ "dusk-poseidon",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "rand 0.8.5",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-randomness-collective-flip"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate.git?branch=polkadot-v0.9.19#174735ea1bb5fc4513519c45181d8df63d86f613"
@@ -4175,23 +4217,6 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
-]
-
-[[package]]
-name = "pallet-template"
-version = "4.0.0-dev"
-dependencies = [
- "dusk-bytes",
- "dusk-plonk",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "rand 0.8.5",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
 ]
 
 [[package]]

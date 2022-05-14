@@ -1,5 +1,5 @@
 [package]
-name = "pallet-template"
+name = "pallet-mixer"
 version = "4.0.0-dev"
 description = "FRAME pallet template for defining custom runtime logic."
 authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
@@ -27,9 +27,14 @@ rand = { version = "0.8.5", default-features = false, features = [
   "alloc",
 ] }
 dusk-bytes = { version = "0.1.5", default-features = false }
+dusk-bls12_381 = { version = "0.9", default-features = false }
 dusk-plonk = { version = "0.10.0", default-features = false, features = [
   "alloc",
 ] }
+dusk-poseidon = { version = "0.25.0-rc.0", default-features = false, features = [
+  "alloc",
+] }
+
 
 #rand_xorshift = { path = "../../../rngs/rand_xorshift", default-features = false, features = [
 #  "alloc",
