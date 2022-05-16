@@ -174,8 +174,7 @@ mod test {
 
     #[test]
     fn test_circuit() -> Result<(), Error> {
-        use std::fs;
-        use std::path::Path;
+        use std::{fs, path::Path};
 
         let level = 3;
         let dummy_proof = ProofPath {
@@ -188,21 +187,34 @@ mod test {
         let mut rng = StdRng::from_seed(seed);
         let pp = PublicParameters::setup(1 << circuit::CAPACITY, &mut rng)?;
         println!("public paremeters generated");
+
         let pp_bytes = pp.to_var_bytes();
         let hex_string = format!("0x{}", hex::encode(pp_bytes));
 
         fs::write(Path::new("pp.txt"), hex_string).unwrap();
+
+        let secret = BlsScalar::random(&mut rng);
+        let nullifier = BlsScalar::random(&mut rng);
+        let commitment = sponge::hash(&[secret, nullifier]);
 
         let mut mt = FixedMerkleTree::new(level as u32, &ZERO);
         mt.insert(BlsScalar::from_hex_str(l1).unwrap());
         mt.insert(BlsScalar::from_hex_str(l2).unwrap());
         mt.insert(BlsScalar::from_hex_str(l3).unwrap());
         mt.insert(BlsScalar::from_hex_str(l4).unwrap());
+        mt.insert(commitment);
 
-        let proof = mt.proof(BlsScalar::from_hex_str(l3).unwrap());
+        let mt_proof = mt.proof(commitment);
         println!("merkle proof generated successfully");
-        let (pk, vd) =
-            MerkleTreeCircuit::new(level as usize, BlsScalar::zero(), dummy_proof).compile(&pp)?;
+
+        let (pk, vd) = WithdrawCircuit::new(
+            level as usize,
+            BlsScalar::zero(),
+            BlsScalar::zero(),
+            BlsScalar::zero(),
+            dummy_proof,
+        )
+        .compile(&pp)?;
         //dbg!(&vd.to_var_bytes().len());
 
         fs::write(
@@ -211,8 +223,10 @@ mod test {
         )
         .unwrap();
         println!("compiled circuit");
+
+        let nullifier_hash = sponge::hash(&[nullifier]);
         let proof =
-            MerkleTreeCircuit::new(level as usize, BlsScalar::from_hex_str(l3).unwrap(), proof)
+            WithdrawCircuit::new(level as usize, secret, nullifier, nullifier_hash, mt_proof)
                 .prove(&pp, &pk, label)?;
         println!("zk proof generated");
         fs::write(
@@ -221,7 +235,7 @@ mod test {
         )
         .unwrap();
 
-        MerkleTreeCircuit::verify(&pp, &vd, &proof, &[], label)?;
+        WithdrawCircuit::verify(&pp, &vd, &proof, &[], label)?;
         println!("proof verified");
 
         //let proof = mt.proof(BlsScalar::from_hex_str(l2).unwrap());
